@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RadVoice Pro | Sistema de Ditado Inteligente</title>
+    <meta name="description" content="Plataforma premium de reconhecimento de voz para ditado de laudos radiológicos.">
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar de Navegação -->
+        <nav class="sidebar">
+            <div class="logo" style="margin-bottom: 2rem; display: flex; align-items: center; gap: 10px;">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+                <h2 style="font-size: 1.2rem; letter-spacing: 1px;">RADVOICE</h2>
+            </div>
+
+            <div class="menu-section">
+                <span class="card-section-title">Navegação</span>
+                <button class="btn" id="nav-new" style="width: 100%; justify-content: flex-start; margin-bottom: 8px; background: rgba(0, 210, 255, 0.1); border-color: var(--accent-primary);">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                    Novo Laudo
+                </button>
+                <button class="btn" id="nav-history" style="width: 100%; justify-content: flex-start; margin-bottom: 8px;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                    Histórico
+                </button>
+            </div>
+
+            <div class="menu-section" style="margin-top: 2rem; display: none;">
+                <span class="card-section-title">Configuração de IA</span>
+                
+                <div style="margin-bottom: 12px;">
+                    <label style="font-size: 0.8rem; color: var(--text-muted);">1. Motor de Voz (Gemini)</label>
+                    <input type="password" id="gemini-key-input" placeholder="Chave Gemini (AIza...)" style="width: 100%; margin-top: 5px; background: var(--bg-tertiary); border: 1px solid var(--glass-border); color: white; padding: 8px; border-radius: 6px; font-size: 0.8rem; outline: none;">
+                </div>
+
+                <div style="margin-bottom: 12px;">
+                    <label style="font-size: 0.8rem; color: var(--text-muted);">2. Corretor Clínico (Groq)</label>
+                    <input type="password" id="groq-key-input" placeholder="Chave Groq (gsk_...)" style="width: 100%; margin-top: 5px; background: var(--bg-tertiary); border: 1px solid var(--glass-border); color: white; padding: 8px; border-radius: 6px; font-size: 0.8rem; outline: none; margin-bottom: 8px;">
+                    
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="groq-toggle" checked style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent-success);">
+                        <label for="groq-toggle" style="font-size: 0.8rem; cursor: pointer; font-weight: 500;">Substituição Inteligente (Smart Merge)</label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="stats-info" style="margin-top: auto; background: rgba(255,255,255,0.02); border-radius: 10px; padding: 1rem;">
+                <span style="font-size: 0.75rem; color: var(--text-dim);">MOTOR ATIVO</span>
+                <div style="font-size: 0.9rem; font-weight: 500; margin-top: 4px; display: flex; align-items: center; gap: 6px;">
+                    <div style="width: 6px; height: 6px; background: #10b981; border-radius: 50%;"></div>
+                    Gemini + Groq Ativo
+                </div>
+            </div>
+        </nav>
+
+        <!-- Área Principal -->
+        <main class="main-content">
+            <header class="header">
+                <div class="header-title">
+                    <h1>Área de Ditado</h1>
+                </div>
+                <div class="status-badge">
+                    <div class="status-dot" id="connection-status"></div>
+                    <span id="status-text">Aguardando...</span>
+                </div>
+            </header>
+
+            <div class="editor-workspace">
+                <!-- Editor Central -->
+                <div class="glass-editor-card">
+                    <div class="editor-toolbar">
+                        <button class="btn" style="padding: 5px 10px;" title="Negrito"><b>B</b></button>
+                        <button class="btn" style="padding: 5px 10px;" title="Itálico"><i>I</i></button>
+                        <div style="border-left: 1px solid var(--glass-border); margin: 0 5px;"></div>
+                        <div style="margin-left: auto; display: flex; gap: 8px;">
+                            <button class="btn btn-success" id="btn-save">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                                Salvar Laudo
+                            </button>
+                            <button class="btn btn-primary" id="btn-copy">
+                                Copiar Laudo
+                            </button>
+                        </div>
+                    </div>
+                    <!-- Substituto Rich-Text Div ContentEditable para aceitar Negrito Visual -->
+                    <div id="finalEditor" class="rich-editor" contenteditable="true" style="outline: none;">
+Clique ou dite para começar o laudo...
+                    </div>
+                    <div id="interim-text" class="interim-transcript">
+                        Ouvindo: <span id="partial-content"></span>
+                    </div>
+                </div>
+
+                <!-- Painel de Controle Lateral -->
+                <aside class="side-panel">
+                    <div class="mic-card">
+                        <button class="mic-button" id="toggle-record">
+                            <svg class="mic-icon" viewBox="0 0 24 24">
+                                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                                <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                            </svg>
+                        </button>
+                        <h3 id="mic-label" style="margin-bottom: 4px;">Gravar Áudio</h3>
+                        <p id="mic-subtext" style="font-size: 0.85rem; color: var(--text-dim);">Será transcrito pelo Gemini e corrigido pelo Groq</p>
+                        
+                        <!-- Wave Animation -->
+                        <div class="waveform-container" id="visualizer">
+                            <div class="wave-bar"></div>
+                            <div class="wave-bar"></div>
+                            <div class="wave-bar"></div>
+                            <div class="wave-bar"></div>
+                            <div class="wave-bar"></div>
+                            <div class="wave-bar"></div>
+                            <div class="wave-bar"></div>
+                        </div>
+                    </div>
+
+                    </div>
+                </aside>
+            </div>
+        </main>
+
+        <!-- Modal Histórico Flutuante -->
+        <div class="modal-overlay" id="history-overlay">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 style="font-family: 'Outfit'; font-size: 1.2rem; color: white;">Histórico de Laudos Salvos</h3>
+                    <button class="btn-close-modal" id="close-history-btn">&times;</button>
+                </div>
+                <div class="history-scroll" id="history-list-container">
+                    <!-- Itens inseridos via Javascript -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts Com Cache Buster Ativo -->
+    <script src="credentials_local.js?v=1"></script>
+    <script src="knowledge.js?v=33"></script>
+    <script src="gemini_fix.js?v=33"></script>
+    <script src="groq_fix.js?v=33"></script>
+    <script src="templates_data.js?v=33"></script>
+    <script src="openai_fix.js?v=33"></script>
+    <script src="zhipu_fix.js?v=33"></script>
+    <script src="voice_fix.js?v=33"></script>
+    <script src="app_fix.js?v=33"></script>
+</body>
+</html>
+
