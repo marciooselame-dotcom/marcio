@@ -38,9 +38,9 @@ document.addEventListener('DOMContentLoaded', () => {
             finalContent += docState.templateContent + "\n";
         }
 
-        // 3. O Ditado Vivo do Gemini (Para visualização do médico antes do Groq fundir)
+        // 3. A Transcrição Bruta (Exibida para conferência do médico)
         if (docState.rawDictationBuffer.trim()) {
-            finalContent += "\n--- DITADO EM ANDAMENTO ---\n" + docState.rawDictationBuffer.trim() + "\n";
+            finalContent += "\n\n--- CONFERÊNCIA DA TRANSCRIÇÃO BRUTA ---\n" + docState.rawDictationBuffer.trim() + "\n";
         }
 
         textEditor.innerHTML = formatLaudoHTML(finalContent);
@@ -66,50 +66,62 @@ document.addEventListener('DOMContentLoaded', () => {
         // ETAPA 1: METADADOS DINÂMICOS
         handleMetadataCommand: (cmd) => {
             console.log("[AppStages] Recebido Comando de Metadados:", cmd);
-            if (cmd.action === 'setPatient') {
-                // Sobrescreve no estado, matando a duplicidade
+            
+            // ETAPA 1: BLOQUEIA ATÉ RECEBER PACIENTE
+            if (cmd.action === 'setPatient' && !docState.patientName) {
                 docState.patientName = cmd.value.trim();
-                updateUIStatus('success', `Identificando: ${cmd.value}`);
+                updateUIStatus('success', `✅ Paciente Definido: ${cmd.value}`);
                 renderEditor();
+                
+                // Avisa para a próxima etapa
+                setTimeout(() => {
+                    if (!docState.templateContent) {
+                        updateUIStatus('listening', '👉 ETAPA 2: Fale "Laudo [Parte e Lado]"');
+                    }
+                }, 1500);
+                return;
             }
 
-            if (cmd.action === 'loadTemplate') {
+            // ETAPA 2: SÓ PERMITE SE JÁ TIVER PACIENTE, MAS AINDA NÃO TEM TEMPLATE
+            if (cmd.action === 'loadTemplate' && docState.patientName && !docState.templateContent) {
                 const lookup = cmd.value.toLowerCase();
                 let found = null;
                 if (typeof ReportTemplates !== 'undefined') {
                     found = ReportTemplates.getTemplate(lookup);
                 }
-                // Sobrescreve o template no estado
+                
                 docState.templateContent = found || `[TEMPLATE NÃO ENCONTRADO PARA "${cmd.value}"]\nANÁLISE:\n[Aguardando]\nIMPRESSÃO:\nEstudo normal.`;
-                updateUIStatus('success', `Modelo: ${cmd.value}`);
+                updateUIStatus('success', `✅ Modelo Carregado: ${cmd.value}`);
                 renderEditor();
-            }
-            // GATILHO DE TRANSIÇÃO AUTOMÁTICA COM TRAVA DE SEGURANÇA ANTI-DUPLICIDADE
-            // Se ambos Paciente E Template foram preenchidos E AINDA NÃO ESTIVER TRANSIÇÃO EM CURSO
-            if (docState.patientName && docState.templateContent && !isAutoTransitioning) {
-                isAutoTransitioning = true; // Ativa o cadeado imediatamente!
                 
-                console.log("[AutoWorkflow] Detectado Paciente + Laudo. Engatando Transição Automática ÚNICA...");
-                updateUIStatus('loading', 'Automação: Iniciando Gravador em 1s...');
-                
-                setTimeout(() => {
-                    if (VoiceEngine.getCurrentPhase() === 'CONFIG') {
-                        VoiceEngine.switchToGemini();
-                    }
-                }, 1200);
+                // ETAPA 3: GATILHO DE TRANSIÇÃO AUTOMÁTICA PARA DITADO
+                if (!isAutoTransitioning) {
+                    isAutoTransitioning = true;
+                    updateUIStatus('loading', '🚀 ETAPA 3: Ativando Ditado Contínuo...');
+                    setTimeout(() => {
+                        if (VoiceEngine.getCurrentPhase() === 'CONFIG') {
+                            VoiceEngine.switchToGemini(); // Vai para o motor ininterrupto agora!
+                        }
+                    }, 1500);
+                }
             }
         },
 
         // ETAPA 2: DITADO GEMINI
-        receiveRawTranscription: async (text) => {
+        receiveRawTranscription: async (text, isOverwrite = false) => {
             if (!text || !text.trim()) return;
             
             // Remove gatilhos de finalização visual
             let safeChunk = text.replace(/finalizar exame/gi, "").replace(/concluir relatório/gi, "").trim();
             
             if (safeChunk) {
-                docState.rawDictationBuffer += safeChunk + " ";
-                // Renderiza novamente a tela, agora com o texto concatenado no fim
+                if (isOverwrite) {
+                    // O Gemini entregou o texto MESTRE definitivo! Substitui o preview rústico.
+                    docState.rawDictationBuffer = safeChunk;
+                } else {
+                    docState.rawDictationBuffer += safeChunk + " ";
+                }
+                // Renderiza novamente a tela, agora com o texto atualizado
                 renderEditor();
             }
         },
@@ -147,7 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Salva no estado ativo APENAS se for Modo VISUAL
                 if (!isBackground) {
                     docState.templateContent = finalAnalysisText;
-                    docState.rawDictationBuffer = "";
+                    // NOTA: Deixamos o rawDictationBuffer intacto para que o usuário veja no final do laudo o que foi transcrito!
                     renderEditor();
                 }
 
@@ -216,37 +228,22 @@ document.addEventListener('DOMContentLoaded', () => {
         onStatusChange: (s, m) => { updateUIStatus(s, m); },
         onCommand: async (cmd) => {
             if (cmd.action === 'FORCE_FINISH') {
-                console.log("[AutoWorkflow] Comando Final Detectado. Capturando Snapshot e limpando tela...");
+                console.log("[AutoWorkflow] Comando Final Detectado. Rodando IA Refinamento no modo Visual...");
                 
-                // 1. CAPTURA IMEDIATA DOS DADOS (Backup em Memória)
-                let safeTemplate = docState.templateContent || textEditor.innerText || "";
-                // Limpeza Defensiva: Se pegou do DOM e veio com o placeholder inicial, zere para não alucinar!
-                if (safeTemplate.includes("Clique ou dite para começar")) {
-                    safeTemplate = ""; 
-                }
+                // 1. NÃO limpa a tela mais! Apenas atualiza o status visualmente.
+                updateUIStatus('loading', '🚀 Processando IA (Por favor, aguarde)...');
 
-                const snapshotData = {
-                    templateContent: safeTemplate,
-                    rawDictationBuffer: docState.rawDictationBuffer,
-                    patientName: docState.patientName,
-                    currentDate: docState.currentDate
-                };
-
-                // 2. LIMPEZA INSTANTÂNEA DO AMBIENTE VISUAL (O exame SAI da tela!)
-                clearSystemState(); 
-                updateUIStatus('loading', '🚀 Laudo enviado para processamento em background...');
-
-                // 3. DISPARO TOTALMENTE ASSÍNCRONO (Fogo e Esquece - roda solto no fundo)
+                // 2. DISPARO DO MODO VISUAL (passando null forçamos rodar NA TELA)
                 setTimeout(() => {
-                    AppStages.executeFinalAiRefinement(snapshotData);
+                    AppStages.executeFinalAiRefinement(null);
                 }, 100);
 
             } else {
                 AppStages.handleMetadataCommand(cmd);
             }
         },
-        onRawTranscription: async (text) => {
-            await AppStages.receiveRawTranscription(text);
+        onRawTranscription: async (text, isFinalOverwrite) => {
+            await AppStages.receiveRawTranscription(text, isFinalOverwrite);
         }
     });
 
@@ -264,8 +261,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 isRefiningProcessActive = false; // Libera para o próximo laudo
                 VoiceEngine.startConfig();
             } else if (phase === 'CONFIG') {
-                VoiceEngine.switchToGemini();
-            } else {
+                // Permite ao médico clicar no botão para FORÇAR a leitura do Gemini AGORA! (Segurança)
+                updateUIStatus('loading', '⚡ Processando entrada manual...');
+                VoiceEngine.commitCurrentConfig();
+            } else if (phase === 'DICTATION') {
                 (async () => {
                     await VoiceEngine.kill(); // Aguarda o flush final do áudio antes de rodar Groq!
                     await AppStages.executeFinalAiRefinement();

@@ -79,14 +79,11 @@ const GroqService = (() => {
                 const result = await executeMergeRequest(dictation, currentReportText, currentKey);
                 return result;
             } catch (err) {
-                if (err.message.includes("429") || err.message.includes("rate") || err.message.includes("limit")) {
-                    console.warn(`Groq Merge Chave #${currentKeyIndex + 1} limitada. Rotacionando...`);
-                    currentKeyIndex = (currentKeyIndex + 1) % KEYS_POOL.length;
-                    attempts++;
-                    continue;
-                }
-                console.error("Erro fatal Groq Merge:", err);
-                return null;
+                // CRÍTICO: Roda a roleta de chaves para QUALQUER ERRO (401, 429, 500, etc.)
+                console.warn(`⚠️ Falha na Chave Groq #${currentKeyIndex + 1}. Erro: ${err.message}. Rotacionando para reserva...`);
+                currentKeyIndex = (currentKeyIndex + 1) % KEYS_POOL.length;
+                attempts++;
+                continue; // Pula para a próxima chave do pool!
             }
         }
         return null;
@@ -95,72 +92,170 @@ const GroqService = (() => {
     async function executeMergeRequest(dictation, fullText, API_KEY) {
         const url = "https://api.groq.com/openai/v1/chat/completions";
         
-        // CORREÇÃO CRÍTICA: Removidas as reticências '...' dos exemplos que induziam a IA a apagar conteúdo!
-        const systemPrompt = `Você é um especialista em fusão textual radiológica de ELITE.
-Sua MISSÃO é aplicar RIGOROSAMENTE a lógica de substituição definida abaixo.
+        // =====================================================================
+        // MICRO-RAG DINÂMICO: Busca exemplos reais na bíblia do médico (1.400 frases)
+        // =====================================================================
+        let relevantStyles = [];
+        if (typeof DOCTOR_KNOWLEDGE_BASE !== 'undefined' && Array.isArray(DOCTOR_KNOWLEDGE_BASE)) {
+            // Extrai palavras-chave clínicas do ditado
+            const keywords = dictation.toLowerCase().split(/\W+/).filter(w => w.length > 4);
+            const matches = new Set();
+            
+            for (const phrase of DOCTOR_KNOWLEDGE_BASE) {
+                const lowerPhrase = phrase.toLowerCase();
+                for (const kw of keywords) {
+                    if (lowerPhrase.includes(kw)) {
+                        matches.add(phrase);
+                        break;
+                    }
+                }
+                if (matches.size >= 8) break; // Limita a 8 exemplos reais para não estourar token
+            }
+            relevantStyles = Array.from(matches);
+        }
 
---- REGRA DE FORMATAÇÃO GERAL E OBRIGATÓRIA ---
-Você DEVE obrigatoriamente separar cada patologia e cada frase residual com uma QUEBRA DE LINHA. 
-NUNCA deixe duas frases na mesma linha. Cada ponto final "." deve gerar um pulo de linha.
+        // Formata a string de conhecimento dinâmico
+        let dynamicStyleGuide = relevantStyles.length > 0 
+            ? relevantStyles.map(s => `- "${s}"`).join("\n")
+            : `- "Edema da gordura infrapatelar lateral, inferindo impacto local."\n- "Pequeno derrame articular com espessamento sinovial."`;
 
---- MATRIZ DE REGRAS DE SUBSTITUIÇÃO CIRÚRGICA ---
+        // CRÍTICO: Esteriliza a string para não quebrar o template literal do Javascript!
+        dynamicStyleGuide = dynamicStyleGuide.replace(/`/g, "'").replace(/\$/g, "S");
 
-1. MENISCOS (Alvo: "Meniscos de morfologia e sinal normais.")
-*REGRA DE OURO OBRIGATÓRIA*: Se houver lesão em apenas UM dos meniscos, você DEVE escrever a lesão E LOGO ABAIXO a frase declarando o outro como normal. PROIBIDO apagar o menisco normal remanescente!
+        const systemPrompt = `Você é um sistema de processamento determinístico de strings médicas.
+Sua função é realizar a substituição mecânica de parágrafos baseada nas instruções abaixo.
 
---- TABELA DE COMBINAÇÃO DOS MENISCOS (RESULTADO EXATO) ---
-- Lesão APENAS no MEDIAL -> Substituir por EXACTAMENTE isto:
-[Patologia Ditada].
+=== GUIA DE ESTILO DINÂMICO (FRASES REAIS DO SEU HISTÓRICO) ===
+O médico historicamente escreve assim (utilize esta exata estrutura e vocabulário se compatível):
+${dynamicStyleGuide}
+
+=== DIRETRIZES DE PROCESSAMENTO LITERAL (OBRIGATÓRIO) ===
+1. PRESERVAÇÃO TEXTUAL: É terminantemente proibido alterar o vocabulário, corrigir gramática ou aplicar sinonímia. Copie o bloco ditado caractere por caractere.
+2. ZERO ACRÉSCIMO: Não insira textos explicativos, prólogos ou epílogos. Insira apenas os achados brutos do ditado.
+3. PRECISÃO: Mantenha fidelidade total à terminologia usada pelo especialista.
+4. INTEGRIDADE ABSOLUTA E PROIBIÇÃO DE TRUNCAMENTO (CRÍTICO): É TERMINANTEMENTE PROIBIDO cortar, abreviar ou omitir qualquer parte do laudo. A saída DEVE conter rigorosamente TODAS as seções e parágrafos originais. Você deve obrigatoriamente reescrever TODAS as linhas remanescentes até o final do documento, preservando-as caractere por caractere. NUNCA termine a saída antes da última linha do laudo.
+
+=== ESTRUTURAÇÃO E FORMATAÇÃO ===
+1. LEI DA DUPLA ATUALIZAÇÃO: Toda patologia ditada DEVE aparecer em DOIS LUGARES: primeiro na seção ANÁLISE (substituindo a frase normal) e depois na seção IMPRESSÃO (como item da lista).
+2. REGRA DO COMPARTIMENTO OPOSTO (CRÍTICO): Se houver lesão em APENAS UM menisco, você OBRIGATORIAMENTE deve escrever a frase "[Menisco Oposto] de morfologia e sinal normais" logo abaixo dele na ANÁLISE.
+3. REGRA DE SUBTRAÇÃO DE CARTILAGEM: Se o ditado possuir lesão PATELAR ou TROCLEAR, você DEVE remover a palavra "femoropatelares" da frase residual de cartilagem. Se a lesão for FEMOROTIBIAL, remova a palavra "femorotibiais".
+4. REGRA DOS LIGAMENTOS SAUDÁVEIS: Ao reportar lesão ligamentar, você DEVE SEMPRE acrescentar uma frase única listando os ligamentos que restaram saudáveis (ex: "Ligamento cruzado posterior e colaterais íntegros.").
+5. REGRA DO MANGUITO RESTANTE (CRÍTICO): Se houver lesão em APENAS UM tendão do manguito (ex: supraespinhal), você DEVE obrigatoriamente acrescentar logo abaixo: "Demais tendões do manguito rotador (infraespinhal, subescapular e redondo menor) de espessura e sinal normais.".
+6. QUEBRA DE LINHA: Cada período diagnóstico deve ocupar sua própria linha isolada (\n).
+7. SAÍDA DIRETA: Emita o laudo COMPLETO atualizado, do cabeçalho ao fim. Não omita nenhuma seção original.
+
+=== ALGORITMO DE SUBSTITUIÇÃO POR EXEMPLOS ===
+
+EXEMPLO 1A: MENISCO MEDIAL LESADO (Mantendo o oposto saudável)
+Ditado: "Ruptura do menisco medial."
+Laudo:
+RESSONÂNCIA MAGNÉTICA DO JOELHO DIREITO
+ANÁLISE:
+Meniscos de morfologia e sinal normais.
+Ligamentos íntegros.
+IMPRESSÃO:
+Estudo normal.
+
+Saída Correta:
+RESSONÂNCIA MAGNÉTICA DO JOELHO DIREITO
+ANÁLISE:
+Ruptura do menisco medial.
 Menisco lateral de morfologia e sinal normais.
+Ligamentos íntegros.
+IMPRESSÃO:
+- Ruptura do menisco medial.
 
-- Lesão APENAS no LATERAL -> Substituir por EXACTAMENTE isto:
-[Patologia Ditada].
-Menisco medial de morfologia e sinal normais.
+EXEMPLO 2: LIGAMENTOS COM LESÃO (Mantendo patologias já existentes)
+Ditado: "Ruptura do LCA."
+Laudo:
+RESSONÂNCIA MAGNÉTICA DO JOELHO DIREITO
+ANÁLISE:
+Ruptura do menisco medial.
+Menisco lateral de morfologia e sinal normais.
+Ligamentos cruzados e colaterais íntegros.
+Superfícies preservadas.
+IMPRESSÃO:
+- Ruptura do menisco medial.
 
-- Lesão em AMBOS os meniscos (Medial + Lateral): NÃO HAVERÁ FRASE RESIDUAL. Apague totalmente qualquer menção a meniscos normais e retorne APENAS as patologias ditadas.
-*ATENÇÃO: PROIBIDO usar a palavra "Demais" nesta regra de meniscos.
+Saída Correta:
+RESSONÂNCIA MAGNÉTICA DO JOELHO DIREITO
+ANÁLISE:
+Ruptura do menisco medial.
+Menisco lateral de morfologia e sinal normais.
+Ruptura do LCA.
+Ligamento cruzado posterior e colaterais íntegros.
+Superfícies preservadas.
+IMPRESSÃO:
+- Ruptura do menisco medial.
+- Ruptura do LCA.
 
-2. LIGAMENTOS (Alvo: "Ligamentos cruzados e colaterais íntegros.")
-*LÓGICA DE SUBTRAÇÃO MATEMÁTICA (VITAL)*: Você deve subtrair TODOS os ligamentos lesionados do grupo total e criar UMA ÚNICA linha residual saudável no final, agrupando o que sobrou. É proibido gerar frases redundantes.
+EXEMPLO 3: CARTILAGEM COM LESÃO PATELAR (Demonstração de preservação até o fim absoluto)
+Ditado: "Condropatia patelar."
+Laudo:
+RESSONÂNCIA MAGNÉTICA DO JOELHO DIREITO
+ANÁLISE:
+Superfícies condrais femorotibiais e femoropatelares regulares.
+Não há derrame articular significativo.
+Fossa poplítea livre.
+Demais estruturas ósseas e planos miotendíneos preservados.
+IMPRESSÃO:
+Estudo normal.
 
---- TABELA DE COMBINAÇÕES (ESTILO DE RESULTADO FINAL) ---
-- Lesão LCA + Colateral Medial -> Resultado Exato:
-[Patologia LCA].
-[Patologia Colateral Medial].
-Ligamentos cruzado posterior e colateral lateral íntegros.
+Saída Correta:
+RESSONÂNCIA MAGNÉTICA DO JOELHO DIREITO
+ANÁLISE:
+Condropatia patelar.
+Demais superfícies condrais femorotibiais regulares, sem erosões profundas.
+Não há derrame articular significativo.
+Fossa poplítea livre.
+Demais estruturas ósseas e planos miotendíneos preservados.
+IMPRESSÃO:
+- Condropatia patelar.
 
-- Lesão LCA + Colateral Lateral -> Resultado Exato:
-[Patologia LCA].
-[Patologia Colateral Lateral].
-Ligamentos cruzado posterior e colateral medial íntegros.
+EXEMPLO 4: MANGUITO ROTADOR COM LESÃO
+Ditado: "Rotura transfixante do supraespinhal."
+Laudo:
+RESSONÂNCIA MAGNÉTICA DO OMBRO DIREITO
+ANÁLISE:
+Tendões do manguito rotador de espessura e sinal normais.
+Lábio íntegro.
+IMPRESSÃO:
+Estudo normal.
 
-*REGRA DE OURO OBRIGATÓRIA*: Você DEVE obrigatoriamente colocar os TEXTOS DAS PATOLOGIAS DITADAS no documento, ANTES da frase residual saudável. NUNCA apague o ditado da lesão!
-Exemplo Correto: "Ruptura do LCA... Ruptura do Colateral... Ligamentos cruzado posterior e colateral lateral íntegros."
+Saída Correta:
+RESSONÂNCIA MAGNÉTICA DO OMBRO DIREITO
+ANÁLISE:
+Rotura transfixante do supraespinhal.
+Demais tendões do manguito rotador (infraespinhal, subescapular e redondo menor) de espessura e sinal normais.
+Lábio íntegro.
+IMPRESSÃO:
+- Rotura transfixante do supraespinhal.
 
-3. MATRIZ CONDRAL COMPLEXA (Alvo: "Superfícies condrais femorotibiais e femoropatelares regulares, sem erosões profundas.")
-*LÓGICA DE SUBTRAÇÃO ABSOLUTA*: Subtraia TODAS as patologias citadas e gere APENAS UMA linha consolidada final baseada no saldo restante dos compartimentos:
+EXEMPLO 5: SUBSTITUIÇÃO NA PENÚLTIMA LINHA (Evitando corte do rodapé)
+Ditado: "Bursite trocantérica."
+Laudo:
+RESSONÂNCIA MAGNÉTICA DO QUADRIL
+ANÁLISE:
+Lábio íntegro.
+Superfícies regulares.
+Bursa sem coleções.
+Estruturas ósseas de aspecto habitual.
+IMPRESSÃO:
+Estudo normal.
 
---- TABELA DE COMBINAÇÕES CONDRAL (ESTILO DE RESULTADO FINAL) ---
-- Lesão Femorotibial Medial + Patelar -> Resultado: [Patologia Condral 1] [Patologia Condral 2] Demais superfícies condrais femorotibiais laterais regulares, sem erosões profundas.
-- Lesão AMBOS Femorotibiais -> Resultado: [Patologia Condral 1] [Patologia Condral 2] Demais superfícies condrais femoropatelares regulares, sem erosões profundas.
-- Lesão Única Medial ou Lateral -> Resultado: [Patologia Condral] Demais superfícies condrais femorotibiais e femoropatelares regulares, sem erosões profundas.
+Saída Correta:
+RESSONÂNCIA MAGNÉTICA DO QUADRIL
+ANÁLISE:
+Lábio íntegro.
+Superfícies regulares.
+Bursite trocantérica.
+Estruturas ósseas de aspecto habitual.
+IMPRESSÃO:
+- Bursite trocantérica.
 
-*REGRA DE OURO OBRIGATÓRIA*: Você DEVE obrigatoriamente inserir os textos das lesões ANTES da frase residual saudável no laudo. Proibido comer o texto do ditado!
+Lembre-se: Siga RIGOROSAMENTE o padrão de Saída Correta dos exemplos SEM USAR "..." PARA RESUMIR. Emita O LAUDO COMPLETO DO INÍCIO AO FIM SEMPRE. PROIBIDO qualquer comentário.`;
 
---- REGRAS DE ELIMINAÇÃO TOTAL (APAGUE A LINHA ALVO SE HOUVER O ACHADO) ---
-
-- APAGUE "Fossa poplítea livre" -> Se houver "Cisto de Baker" ou "lâmina líquida na bursa".
-- APAGUE "Subcutâneo preservado" -> Se houver alteração descrita no subcutâneo.
-- APAGUE "Ausência de lesões expansivas" -> Se houver lesão tumoral ou lesão óssea descrita.
-- APAGUE "Feixes neurovasculares livres" -> Se houver descrição de trombose ou tromboflebite.
-- APAGUE "Tendão quadríceps e ligamento patelar sem alterações" -> Se houver achado no tendão patelar ou quadríceps.
-- APAGUE "Gordura de Hoffa preservada" -> Se houver "edema da gordura infrapatelar lateral", "suprapatelar" ou "pré-femoral".
-
---- REGRAS VITAIS DE INTEGRIDADE ---
-- Mantenha 100% do ditado VERBATIM. Sem sinônimos. Sem "Condropatia" no lugar de "Irregularidades".
-- O Laudo final deve ser devolvido na ÍNTEGRA, apenas com as linhas operadas cirurgicamente.`;
-
-        const userContent = `--- DITADO DO MÉDICO ---\n"${dictation}"\n\n--- LAUDO ATUAL ---\n${fullText}`;
+        const userContent = `--- DITADO DO MÉDICO ---\n"${dictation}"\n\n--- LAUDO ATUAL ---\n${fullText}\n\nIMPORTANTE: Transcreva O LAUDO INTEIRO até o fim absoluto, incluindo todas as linhas que NÃO foram alteradas. Proibido omitir ou resumir o final do texto.`;
 
         const payload = {
             model: "llama-3.3-70b-versatile", 

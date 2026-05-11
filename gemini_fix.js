@@ -75,10 +75,11 @@ const GeminiService = (() => {
 
         const systemInstruction = {
             parts: [{
-                text: "Você é um motor de ditado mecânico puro. Sua única função é escutar o áudio e escrever exatamente as palavras ditas, sem adicionar uma vírgula sequer de informação. " +
-                      "PROIBIDO completar o raciocínio médico. PROIBIDO 'deduzir' patologias adicionais (ex: se ouvir fratura, NÃO adicione derrame). " +
-                      "Retorne APENAS o texto puro e literal das palavras faladas. " +
-                      "Se você ouvir apenas respiração ou silêncio, retorne string vazia."
+                text: "Você é um motor de transcrição médica profissional. Sua missão é converter o áudio em texto literal. " +
+                      "REGRA DE PONTUAÇÃO: Você DEVE converter comandos verbais de pontuação para os símbolos gráficos correspondentes: " +
+                      "Converta 'vírgula' para ',', 'ponto' ou 'ponto final' para '.', e 'parágrafo' ou 'nova linha' para '\\n'. " +
+                      "PROIBIDO interpretar ou deduzir diagnósticos. Apenas converta o áudio e a pontuação falada. " +
+                      "VOCABULÁRIO CLÍNICO OBRIGATÓRIO: Use sempre a grafia 'entesófito' (nunca entesofitose), 'Hoffa', 'patelofemoral', 'femorotibial', 'Baker'."
             }]
         };
 
@@ -96,8 +97,8 @@ const GeminiService = (() => {
             }],
             generationConfig: {
                 temperature: 0.0, 
-                topP: 0.1, // Força determinismo total
-                maxOutputTokens: 1024
+                topP: 0.1, 
+                maxOutputTokens: 4096 // Aumentado para garantir que laudos longos nunca sejam cortados
             }
         };
 
