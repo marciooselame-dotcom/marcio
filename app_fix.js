@@ -18,7 +18,9 @@ document.addEventListener('DOMContentLoaded', () => {
         patientName: "",
         currentDate: new Date().toLocaleDateString('pt-BR'),
         templateContent: "",
-        rawDictationBuffer: "" // Acumulado final do Gemini
+        originalTemplate: "", // MEMÓRIA IMUTÁVEL: Guarda o template virgem para re-geração em outras abas!
+        rawDictationBuffer: "", // Acumulado final do Gemini
+        currentClinic: "base" // Variável mestre: 'base', 'dasa' ou 'floripa'
     };
 
     // Função Unificada que "Pinta" a tela com base no estado atual
@@ -90,7 +92,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     found = ReportTemplates.getTemplate(lookup);
                 }
                 
-                docState.templateContent = found || `[TEMPLATE NÃO ENCONTRADO PARA "${cmd.value}"]\nANÁLISE:\n[Aguardando]\nIMPRESSÃO:\nEstudo normal.`;
+                const finalFound = found || `[TEMPLATE NÃO ENCONTRADO PARA "${cmd.value}"]\nANÁLISE:\n[Aguardando]\nIMPRESSÃO:\nEstudo normal.`;
+                docState.templateContent = finalFound;
+                docState.originalTemplate = finalFound; // Salva a cópia de segurança para re-processar depois!
                 updateUIStatus('success', `✅ Modelo Carregado: ${cmd.value}`);
                 renderEditor();
                 
@@ -139,7 +143,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             try {
                 // 1. DADOS DE ENTRADA (Pega da tela se manual, pega do snapshot se background)
-                const baseText = isBackground ? snapshot.templateContent : (docState.templateContent || textEditor.innerText);
+                // CRÍTICO: Sempre tentamos usar o ORIGINAL BLANK TEMPLATE para re-processamento limpo!
+                const fallbackText = docState.originalTemplate || docState.templateContent || textEditor.innerText;
+                const baseText = isBackground ? snapshot.templateContent : fallbackText;
                 const rawSpeech = isBackground ? snapshot.rawDictationBuffer.trim() : docState.rawDictationBuffer.trim();
                 const patientName = isBackground ? snapshot.patientName : docState.patientName;
                 const docDate = isBackground ? snapshot.currentDate : docState.currentDate;
@@ -169,14 +175,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 // TENTATIVA 1: GROQ (Ultra-rápido)
                 if (typeof GroqService !== 'undefined' && rawSpeech.length > 3) {
-                    merged = await GroqService.smartMerge(rawSpeech, baseText);
+                    merged = await GroqService.smartMerge(rawSpeech, baseText, docState.currentClinic);
                 }
 
                 // TENTATIVA 2: GEMINI (Backup de alta estabilidade, acionado se Groq falhar)
                 if (!merged && typeof GeminiService !== 'undefined' && typeof GeminiService.smartMerge === 'function' && rawSpeech.length > 3) {
                     console.warn("[Merge Redundancy] Groq indisponível. Acionando motor Gemini Flash para fusão inteligente...");
                     updateUIStatus('processing', 'Otimizando redação via motor secundário (Gemini)...');
-                    merged = await GeminiService.smartMerge(rawSpeech, baseText);
+                    merged = await GeminiService.smartMerge(rawSpeech, baseText, docState.currentClinic);
                 }
 
                 if (merged) {
@@ -211,33 +217,40 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Este é o texto COMPLETO enviado para a IA processar a conclusão
                 const inputForOpenAI = header + finalAnalysisText;
                 
-                // ETAPA 4: CONCLUSÃO (OPENAI)
-                updateUIStatus('loading', '🧠 Gerando Conclusão no fundo...');
+                // ETAPA 4: CONCLUSÃO (OPENAI / FALLBACKS)
                 let conclusion = null;
 
-                // --- TIERED FALLBACK PARA CONCLUSÃO (ESTRUTURA TRIPLA DE REDUNDÂNCIA) ---
-                try {
-                    if (typeof OpenAIService !== 'undefined') {
-                        console.log("[Conclusion Cascade] Tentando OpenAI (Motor Primário)...");
-                        conclusion = await OpenAIService.generateConclusion(inputForOpenAI);
-                    }
-                } catch (openaiErr) {
+                if (docState.currentClinic === 'dasa') {
+                    console.log("[Conclusion Cascade] 🚫 CONTEXTO DASA: Pulando geração de conclusão.");
+                    updateUIStatus('processing', '⚙️ Processando DASA (Sem Conclusão)...');
+                    // No Dasa, limpamos o marcador de Impressão se a IA inseriu por engano
+                    finalAnalysisText = finalAnalysisText.split("IMPRESSÃO:")[0].trim();
+                } else {
+                    updateUIStatus('loading', '🧠 Gerando Conclusão no fundo...');
+                    // --- TIERED FALLBACK PARA CONCLUSÃO (ESTRUTURA TRIPLA DE REDUNDÂNCIA) ---
+                    try {
+                        if (typeof OpenAIService !== 'undefined') {
+                            console.log("[Conclusion Cascade] Tentando OpenAI (Motor Primário)...");
+                            conclusion = await OpenAIService.generateConclusion(inputForOpenAI, docState.currentClinic);
+                        }
+                    } catch (openaiErr) {
                     console.warn("[Conclusion Cascade] ⚠️ OpenAI falhou (Possível Cota Esgotada). Acionando Gemini como Backup A...");
                     try {
                         if (typeof GeminiService !== 'undefined' && typeof GeminiService.generateConclusion === 'function') {
-                             conclusion = await GeminiService.generateConclusion(inputForOpenAI);
+                             conclusion = await GeminiService.generateConclusion(inputForOpenAI, docState.currentClinic);
                              console.log("[Conclusion Cascade] ✅ Gemini gerou a conclusão com sucesso!");
                         }
                     } catch (geminiErr) {
                          console.warn("[Conclusion Cascade] 🚨 Gemini Backup A também falhou! Acionando Groq como Backup B...");
                          try {
                              if (typeof GroqService !== 'undefined' && typeof GroqService.generateConclusionFallback === 'function') {
-                                 conclusion = await GroqService.generateConclusionFallback(inputForOpenAI);
+                                 conclusion = await GroqService.generateConclusionFallback(inputForOpenAI, docState.currentClinic);
                                  console.log("[Conclusion Cascade] ✅ Groq Backup B resgatou a conclusão!");
                              }
                          } catch (groqErr) {
                              console.error("[Conclusion Cascade] 💀 FALHA TOTAL: Todos os 3 motores de conclusão falharam.");
                          }
+                    }
                     }
                 }
 
@@ -619,6 +632,40 @@ document.addEventListener('DOMContentLoaded', () => {
     if (closeHistoryBtn) {
         closeHistoryBtn.addEventListener('click', closeHistoryModal);
     }
+
+    // --- SISTEMA DE SELEÇÃO DE CLÍNICA / WORKSPACE ---
+    const clinicTabs = document.querySelectorAll('.clinic-tab');
+    clinicTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            // 1. Remove active de todos
+            clinicTabs.forEach(t => t.classList.remove('active'));
+            
+            // 2. Adiciona no clicado
+            tab.classList.add('active');
+            
+            // 3. Sincroniza com o Estado Mestre
+            const targetClinic = tab.getAttribute('data-clinic') || 'base';
+            docState.currentClinic = targetClinic;
+            
+            console.log(`🚀 [Contexto] Workspace alterado para: ${targetClinic.toUpperCase()}`);
+            
+            // Feedback visual de transição
+            const labels = { base: 'Padrão Base', dasa: 'Grupo DASA', floripa: 'Floripa' };
+            updateUIStatus('success', `Contexto: ${labels[targetClinic]}`);
+
+            // 🔥 INTELIGÊNCIA RETROATIVA: Se o usuário já ditou algo, RE-PROCESSA INSTANTANEAMENTE para o novo formato!
+            if (docState.rawDictationBuffer && docState.rawDictationBuffer.trim().length > 10) {
+                console.log("[Retroativo] Dictação ativa detectada. Disparando conversão automática de formato...");
+                isRefiningProcessActive = false; // Desbloqueia trava de re-entrada
+                updateUIStatus('loading', `Convertendo laudo para ${labels[targetClinic]}...`);
+                
+                // Dispara a cascata de IA com o novo contexto setado!
+                setTimeout(() => {
+                    AppStages.executeFinalAiRefinement();
+                }, 100);
+            }
+        });
+    });
 
     // Fecha se clicar fora da modal
     window.addEventListener('click', (e) => {

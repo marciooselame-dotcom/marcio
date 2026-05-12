@@ -79,7 +79,7 @@ Retorne APENAS o JSON:
     /**
      * MÓDULO SMART MERGE: Realiza a SUBSTITUIÇÃO INTELIGENTE DE FRASES NORMAIS.
      */
-    async function smartMerge(dictation, currentReportText) {
+    async function smartMerge(dictation, currentReportText, clinicType = 'base') {
         if (!isEnabled) return null; 
         if (!dictation || !dictation.trim()) return null;
         if (!currentReportText || currentReportText.length < 30) return null;
@@ -88,7 +88,7 @@ Retorne APENAS o JSON:
         while (attempts < KEYS_POOL.length) {
             const currentKey = KEYS_POOL[currentKeyIndex];
             try {
-                const result = await executeMergeRequest(dictation, currentReportText, currentKey);
+                const result = await executeMergeRequest(dictation, currentReportText, clinicType, currentKey);
                 return result;
             } catch (err) {
                 // CRÍTICO: Roda a roleta de chaves para QUALQUER ERRO (401, 429, 500, etc.)
@@ -101,7 +101,7 @@ Retorne APENAS o JSON:
         return null;
     }
 
-    async function executeMergeRequest(dictation, fullText, API_KEY) {
+    async function executeMergeRequest(dictation, fullText, clinicType, API_KEY) {
         const url = "https://api.groq.com/openai/v1/chat/completions";
         
         // =====================================================================
@@ -134,7 +134,20 @@ Retorne APENAS o JSON:
         // CRÍTICO: Esteriliza a string para não quebrar o template literal do Javascript!
         dynamicStyleGuide = dynamicStyleGuide.replace(/`/g, "'").replace(/\$/g, "S");
 
-        const systemPrompt = `Você é um sistema de processamento determinístico de strings médicas.
+        // --- BLOCO DE REGRAS CONTEXTUAIS DINÂMICAS (DASA / FLORIPA) ---
+        let contextualOverrides = "";
+        
+        if (clinicType === 'dasa') {
+            contextualOverrides = `
+=== 🚨 REGRA DE NEGÓCIO EXCLUSIVA E PRIORITÁRIA: GRUPO DASA 🚨 ===
+1. ORDENAÇÃO NO TOPO DA ANÁLISE: É MANDATÓRIO que todas as novas frases de lesão, ruptura, edema ou cisto sejam escritas OBRIGATORIAMENTE NO INÍCIO da seção "ANÁLISE:", logo abaixo do cabeçalho.
+2. SEQUÊNCIA: Primeiro todas as alterações juntas, depois todas as frases de normalidade preservadas.
+3. PROIBIÇÃO ABSOLUTA DE CONCLUSÃO: Ignore completamente a 'LEI DA DUPLA ATUALIZAÇÃO'. NÃO escreva nada após as frases finais da análise. A seção "IMPRESSÃO" é terminantemente proibida no contexto DASA.
+`;
+        }
+
+        const systemPrompt = `${contextualOverrides}
+Você é um sistema de processamento determinístico de strings médicas.
 Sua função é realizar a substituição mecânica de parágrafos baseada nas instruções abaixo.
 
 === GUIA DE ESTILO DINÂMICO (FRASES REAIS DO SEU HISTÓRICO) ===
@@ -284,9 +297,16 @@ Lembre-se: Siga RIGOROSAMENTE o padrão de Saída Correta SEM USAR "..." PARA RE
         return mergedContent.trim();
     }
 
-    async function generateConclusionFallback(fullText) {
+    async function generateConclusionFallback(fullText, clinicType = 'base') {
         const url = "https://api.groq.com/openai/v1/chat/completions";
-        const systemPrompt = `Você é um médico especialista. Extraia apenas as anormalidades patológicas. Sem marcadores, uma por linha. OBRIGATÓRIO: Insira um ponto final "." ao término de cada uma das frases.`;
+
+        let floripaRules = "";
+        if (clinicType === 'floripa') {
+            floripaRules = `=== 🏥 REGRA FLORIPA (CLASSIFICAÇÃO) ===
+Converta achados de cartilagem para Graus: GRAU I (alteração sinal), GRAU II (irreg. superficiais), GRAU III (erosão/afilamento profundo), GRAU IV (com EDEMA ou EXPOSIÇÃO óssea). `;
+        }
+
+        const systemPrompt = `${floripaRules}Você é um médico especialista. Extraia apenas as anormalidades patológicas. Sem marcadores, uma por linha. OBRIGATÓRIO: Insira um ponto final "." ao término de cada uma das frases.`;
         
         let attempts = 0;
         while (attempts < KEYS_POOL.length) {

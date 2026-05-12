@@ -172,7 +172,7 @@ const GeminiService = (() => {
      * SMART MERGE GEMINI: Versão redundante do motor de fusão de laudos.
      * Acionado caso o Groq atinja limite de cota ou falhe.
      */
-    async function smartMerge(dictation, currentReportText) {
+    async function smartMerge(dictation, currentReportText, clinicType = 'base') {
         if (!dictation || dictation.length < 3) return null;
         if (!currentReportText || currentReportText.length < 30) return null;
 
@@ -180,7 +180,7 @@ const GeminiService = (() => {
         while (attempts < KEYS_POOL.length) {
             const currentKey = KEYS_POOL[currentKeyIndex];
             try {
-                return await executeMergeRequestGemini(dictation, currentReportText, currentKey);
+                return await executeMergeRequestGemini(dictation, currentReportText, clinicType, currentKey);
             } catch (err) {
                 console.warn(`⚠️ Falha Gemini SmartMerge Chave #${currentKeyIndex + 1}: ${err.message}. Rotacionando...`);
                 currentKeyIndex = (currentKeyIndex + 1) % KEYS_POOL.length;
@@ -191,7 +191,7 @@ const GeminiService = (() => {
         return null;
     }
 
-    async function executeMergeRequestGemini(dictation, fullText, API_KEY) {
+    async function executeMergeRequestGemini(dictation, fullText, clinicType, API_KEY) {
         if (!API_KEY) throw new Error("Sem chave Gemini");
 
         // 1. MICRO-RAG DINÂMICO (Clone do motor Groq)
@@ -218,8 +218,23 @@ const GeminiService = (() => {
 
         dynamicStyleGuide = dynamicStyleGuide.replace(/`/g, "'").replace(/\$/g, "S");
 
+        dynamicStyleGuide = dynamicStyleGuide.replace(/`/g, "'").replace(/\$/g, "S");
+
+        // --- BLOCO DE REGRAS CONTEXTUAIS DINÂMICAS (DASA / FLORIPA) ---
+        let contextualOverrides = "";
+        
+        if (clinicType === 'dasa') {
+            contextualOverrides = `
+=== 🚨 REGRA DE NEGÓCIO EXCLUSIVA E PRIORITÁRIA: GRUPO DASA 🚨 ===
+1. ORDENAÇÃO NO TOPO DA ANÁLISE: É MANDATÓRIO que todas as novas frases de lesão, ruptura, edema ou cisto sejam escritas OBRIGATORIAMENTE NO INÍCIO da seção "ANÁLISE:", logo abaixo do cabeçalho.
+2. SEQUÊNCIA: Primeiro todas as alterações juntas, depois todas as frases de normalidade preservadas.
+3. PROIBIÇÃO ABSOLUTA DE CONCLUSÃO: Ignore completamente a 'LEI DA DUPLA ATUALIZAÇÃO'. NÃO escreva nada após as frases finais da análise. A seção "IMPRESSÃO" é terminantemente proibida no contexto DASA.
+`;
+        }
+
         // 2. SYSTEM PROMPT ATUALIZADO (Clone idêntico para garantir MESMO resultado)
-        const systemPrompt = `Você é um sistema de processamento determinístico de strings médicas.
+        const systemPrompt = `${contextualOverrides}
+Você é um sistema de processamento determinístico de strings médicas.
 Sua função é realizar a substituição mecânica de parágrafos baseada nas instruções abaixo.
 
 === GUIA DE ESTILO DINÂMICO (FRASES REAIS DO SEU HISTÓRICO) ===
@@ -373,14 +388,29 @@ Lembre-se: Siga RIGOROSAMENTE o padrão de Saída Correta SEM USAR "..." PARA RE
     // =========================================================================
     // REDUNDÂNCIA ABSOLUTA: GERADOR DE CONCLUSÃO (IMPRESSÃO) VIA GEMINI
     // =========================================================================
-    async function generateConclusion(fullText) {
-        const keys = window.MASTER_KEYS?.gemini || [];
-        if (keys.length === 0) throw new Error("Nenhuma chave Gemini.");
-        const key = keys[0]; // Usa a primeira chave ativa
-        
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${key}`;
-        
-        const systemPrompt = `Você é um radiologista sênior especialista em laudos médicos.
+    async function generateConclusion(fullText, clinicType = 'base') {
+        const currentKey = KEYS_POOL[currentKeyIndex] || "";
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${currentKey}`;
+
+        // --- REGRA CONTEXTUAL PARA FLORIPA (GRADAÇÃO DE CONDROPATIA) ---
+        let floripaRules = "";
+        if (clinicType === 'floripa') {
+            floripaRules = `
+=== 🏥 REGRA DE OURO: PADRÃO FLORIPA (CLASSIFICAÇÃO DE GRAUS) ===
+Você DEVE obrigatoriamente traduzir achados de cartilagem para a ESCALA DE GRAUS na Impressão:
+- GRAU I: Alteração de sinal condral (sem irregularidade).
+- GRAU II: Irregularidades ou fissuras SUPERFICIAIS.
+- GRAU III: Irregularidades profundas, fissuras PROFUNDAS ou afilamento profundo (SEM edema subcondral).
+- GRAU IV: Irregularidades profundas, erosões ou afilamento profundo COM EDEMA ou EXPOSIÇÃO do osso subcondral.
+
+EXEMPLOS REAIS OBRIGATÓRIOS:
+- "Alteração de sinal e irregularidades condrais superficiais na faceta medial da patela" -> "Condropatia patelar grau II"
+- "Irregularidades condrais do compartimento femorotibial medial com fissuras profundas, sem edema subcondral" -> "Condropatia femorotibial medial grau III"
+- "Condropatia patelofemoral com erosões profundas e exposição óssea subcondral" -> "Condropatia patelofemoral grau IV"
+`;
+        }
+
+        const systemPrompt = `Você é um sintetizador de conclusões médicas radiológicas de alta precisão.
 Sua missão é gerar a seção IMPRESSÃO extraindo TODOS os diagnósticos patológicos ou anormais citados no laudo fornecido.
 
 REGRAS RÍGIDAS DE EXTRAÇÃO:
@@ -389,7 +419,9 @@ REGRAS RÍGIDAS DE EXTRAÇÃO:
 3. PONTUAÇÃO OBRIGATÓRIA: Insira um ponto final (.) ao término de CADA UMA das linhas.
 4. SEM FORMATAÇÃO: Proibido usar asteriscos (*), traços (-), números ou marcadores. Apenas texto puro por linha.
 5. SEM INTRODUÇÃO: Nunca escreva "Conclusão:", "Nota:" ou frases genéricas. Vá direto ao ponto.
-6. LAUDO NORMAL: Se NÃO houver nenhuma patologia no laudo, retorne EXATAMENTE: "Estudo por ressonância magnética sem alterações significativas."`;
+6. LAUDO NORMAL: Se NÃO houver nenhuma patologia no laudo, retorne EXATAMENTE: "Estudo por ressonância magnética sem alterações significativas."
+
+${floripaRules}`;
 
         const userContent = `Gere a IMPRESSÃO para este laudo:\n\n${fullText}`;
 
