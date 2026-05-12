@@ -14,7 +14,6 @@ const ReportTemplates = (() => {
                 "Gordura de Hoffa preservada.",
                 "Superfícies condrais femorotibiais e femoropatelares regulares, sem erosões profundas.",
                 "Não há derrame articular significativo.",
-                "Fossa poplítea livre.",
                 "Demais estruturas ósseas e planos miotendíneos preservados.",
                 "Feixes neurovasculares livres.",
                 "Subcutâneo preservado.",

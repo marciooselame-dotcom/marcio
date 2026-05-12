@@ -102,7 +102,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (VoiceEngine.getCurrentPhase() === 'CONFIG') {
                             VoiceEngine.switchToGemini(); // Vai para o motor ininterrupto agora!
                         }
-                    }, 1500);
+                    }, 50); // Reduzido drasticamente de 1500 para 50ms para eliminar o "Ponto Cego" de áudio!
                 }
             }
         },
@@ -144,16 +144,55 @@ document.addEventListener('DOMContentLoaded', () => {
                 const patientName = isBackground ? snapshot.patientName : docState.patientName;
                 const docDate = isBackground ? snapshot.currentDate : docState.currentDate;
 
+                // 🛠️ TELEMETRIA FORENSE (Nível Máximo para diagnóstico de cortes)
+                window.FORENSIC_RAW_SPEECH = rawSpeech;
+                console.log("%c🔍 [AUDIT] TEXTO BRUTO RECEBIDO DO MICROFONE:", "color: cyan; font-weight: bold; font-size: 14px;");
+                console.log(rawSpeech);
+                console.log("%c-------------------------------------------", "color: cyan;");
+
                 console.log(`[AI Cascade] Modo Background: ${isBackground}`);
                 
+                // 🛡️ DISJUNTOR DE SEGURANÇA (FIREWALL): Se a fala veio vazia ou é alucinação de chat, aborte!
+                const isChatbotBlabber = rawSpeech.includes("Estou pronto") || rawSpeech.includes("Entendido.") || rawSpeech.includes("Envie o conteúdo");
+                
+                if (!rawSpeech || rawSpeech.length < 10 || isChatbotBlabber) {
+                     console.error("[CRITICAL] Abortando IA: Fala vazia ou detectado papo de chatbot.", rawSpeech);
+                     alert("⚠️ ATENÇÃO: O sistema não detectou o áudio do seu laudo ou a gravação falhou.\n\nIsso ocorre se o navegador perder a conexão com o microfone.\n\nPor favor, espere a mensagem verde '🎙️ GRAVANDO' e repita o ditado.");
+                     updateUIStatus('error', '❌ Falha na Gravação. Repita.');
+                     return; 
+                }
+
                 let finalAnalysisText = "";
 
-                // ETAPA 3: GROQ MERGE
+                // ETAPA 3: DOUBLE-ENGINE REDUNDANT MERGE
+                let merged = null;
+                
+                // TENTATIVA 1: GROQ (Ultra-rápido)
                 if (typeof GroqService !== 'undefined' && rawSpeech.length > 3) {
-                    const merged = await GroqService.smartMerge(rawSpeech, baseText);
-                    finalAnalysisText = merged || (baseText + "\n\n" + rawSpeech);
+                    merged = await GroqService.smartMerge(rawSpeech, baseText);
+                }
+
+                // TENTATIVA 2: GEMINI (Backup de alta estabilidade, acionado se Groq falhar)
+                if (!merged && typeof GeminiService !== 'undefined' && typeof GeminiService.smartMerge === 'function' && rawSpeech.length > 3) {
+                    console.warn("[Merge Redundancy] Groq indisponível. Acionando motor Gemini Flash para fusão inteligente...");
+                    updateUIStatus('processing', 'Otimizando redação via motor secundário (Gemini)...');
+                    merged = await GeminiService.smartMerge(rawSpeech, baseText);
+                }
+
+                if (merged) {
+                    finalAnalysisText = merged;
                 } else {
-                    finalAnalysisText = baseText + "\n\n" + rawSpeech;
+                    // --- ULTIMATE FALLBACK (Apenas se TUDO falhar) ---
+                    const marker = "IMPRESSÃO:";
+                    const upper = baseText.toUpperCase();
+                    const idx = upper.lastIndexOf(marker);
+                    
+                    if (idx !== -1) {
+                        console.warn("[Fallback Final] Ambas as IAs falharam. Preservando ditado no corpo da Análise.");
+                        finalAnalysisText = baseText.substring(0, idx) + "\n" + rawSpeech + "\n\n" + baseText.substring(idx);
+                    } else {
+                        finalAnalysisText = baseText + "\n\n" + rawSpeech;
+                    }
                 }
 
                 // Salva no estado ativo APENAS se for Modo VISUAL
@@ -176,8 +215,30 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateUIStatus('loading', '🧠 Gerando Conclusão no fundo...');
                 let conclusion = null;
 
-                if (typeof OpenAIService !== 'undefined') {
-                    conclusion = await OpenAIService.generateConclusion(inputForOpenAI);
+                // --- TIERED FALLBACK PARA CONCLUSÃO (ESTRUTURA TRIPLA DE REDUNDÂNCIA) ---
+                try {
+                    if (typeof OpenAIService !== 'undefined') {
+                        console.log("[Conclusion Cascade] Tentando OpenAI (Motor Primário)...");
+                        conclusion = await OpenAIService.generateConclusion(inputForOpenAI);
+                    }
+                } catch (openaiErr) {
+                    console.warn("[Conclusion Cascade] ⚠️ OpenAI falhou (Possível Cota Esgotada). Acionando Gemini como Backup A...");
+                    try {
+                        if (typeof GeminiService !== 'undefined' && typeof GeminiService.generateConclusion === 'function') {
+                             conclusion = await GeminiService.generateConclusion(inputForOpenAI);
+                             console.log("[Conclusion Cascade] ✅ Gemini gerou a conclusão com sucesso!");
+                        }
+                    } catch (geminiErr) {
+                         console.warn("[Conclusion Cascade] 🚨 Gemini Backup A também falhou! Acionando Groq como Backup B...");
+                         try {
+                             if (typeof GroqService !== 'undefined' && typeof GroqService.generateConclusionFallback === 'function') {
+                                 conclusion = await GroqService.generateConclusionFallback(inputForOpenAI);
+                                 console.log("[Conclusion Cascade] ✅ Groq Backup B resgatou a conclusão!");
+                             }
+                         } catch (groqErr) {
+                             console.error("[Conclusion Cascade] 💀 FALHA TOTAL: Todos os 3 motores de conclusão falharam.");
+                         }
+                    }
                 }
 
                 // MONTAGEM FINAL DO DOCUMENTO
@@ -212,6 +273,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
 
+                // 📧 DISPARO SILENCIOSO EM SEGUNDO PLANO (NOVO!)
+                sendReportByEmail(true);
+
             } catch (err) {
                 console.error("Falha na Cascata de IA:", err);
                 updateUIStatus('error', 'Erro fatal no processamento.');
@@ -221,6 +285,92 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     };
+
+    /**
+     * SISTEMA DE TELEMETRIA E MONITORAMENTO DE APIS
+     * Chamado pelos serviços para atualizar as barras visuais do sidebar em tempo real
+     */
+    window.updateApiHealth = function(service, percent, message) {
+        const barId = `${service}-bar`;
+        const textId = `${service}-stat-text`;
+        
+        const bar = document.getElementById(barId);
+        const text = document.getElementById(textId);
+        
+        if (bar) {
+            bar.style.width = `${percent}%`;
+            // Troca cor baseado no percentual crítico
+            if (percent < 20) {
+                bar.style.background = 'linear-gradient(90deg, #ef4444, #b91c1c)'; 
+            } else if (percent < 50) {
+                bar.style.background = 'linear-gradient(90deg, #f59e0b, #d97706)'; 
+            } else {
+                if (service === 'gemini') bar.style.background = 'linear-gradient(90deg, #0ea5e9, #3b82f6)';
+                if (service === 'groq') bar.style.background = 'linear-gradient(90deg, #f59e0b, #f97316)';
+                if (service === 'openai') bar.style.background = 'linear-gradient(90deg, #10b981, #059669)';
+            }
+        }
+        if (text) {
+            text.textContent = message;
+            text.style.color = percent < 20 ? 'var(--accent-danger)' : (percent < 50 ? 'var(--accent-warning)' : 'var(--accent-success)');
+        }
+    };
+
+    /**
+     * EVENTO DE ENVIO POR E-MAIL (AGORA EM SEGUNDO PLANO VIA RELAY NODE!)
+     */
+    async function sendReportByEmail(silent = false) {
+        const text = textEditor.innerText || "";
+        if (!text || text.length < 10) return;
+
+        const lines = text.split("\n");
+        let paciente = "Laudo Radiológico";
+        for (const line of lines) {
+            if (line.toUpperCase().includes("PACIENTE:")) {
+                paciente = line.split(":")[1]?.trim() || "Laudo";
+                break;
+            }
+        }
+
+        const dest = "marcio.oselame@gmail.com";
+        const subject = `Laudo Digital | ${paciente}`;
+
+        if (!silent) updateUIStatus('processing', 'Disparando e-mail silencioso...');
+
+        try {
+            // Chama o Micro-serviço local rodando na porta 3005
+            const response = await fetch('http://localhost:3005/send-email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    to: dest,
+                    subject: subject,
+                    text: text,
+                    html: `<div style="font-family: 'Arial', sans-serif; font-size: 12pt; line-height: 1.5; text-align: left; color: #000000;">${formatLaudoHTML(textEditor.innerText || "")}</div>`
+                })
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                console.log("[Email Pipeline] ✅ E-mail enviado em segundo plano com sucesso!");
+                if (!silent) updateUIStatus('success', '✅ E-mail enviado com sucesso!');
+            } else {
+                console.warn("[Email Pipeline] ⚠️ Falha no Relay:", result.error);
+                // Se falhar em background, fallback para o mailto clássico somente se o usuário CLICOU manualmente!
+                if (!silent) {
+                     alert("Ainda não configurou sua Senha de App do Google no servidor local. Abrindo cliente de e-mail manual...");
+                     window.open(`mailto:${dest}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`, '_self');
+                }
+            }
+        } catch (err) {
+            console.error("[Email Pipeline] Micro-serviço offline ou não configurado:", err);
+            if (!silent) {
+                // Fallback seguro se o servidor node cair
+                window.open(`mailto:${dest}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`, '_self');
+            }
+        }
+    }
+
 
     // --- BOOTSTRAP DO MOTOR ---
     VoiceEngine.init({
@@ -277,11 +427,24 @@ document.addEventListener('DOMContentLoaded', () => {
     function formatLaudoHTML(text) {
         if (!text) return "";
         let html = text.replace(/\n/g, '<br>');
-        const keywords = ["RESSONÂNCIA MAGNÉTICA", "TÉCNICA:", "ANÁLISE:", "IMPRESSÃO:", "RELATÓRIO:", "PACIENTE:", "DATA:"];
-        keywords.forEach(k => {
-            const r = new RegExp(`(${k})`, "gi");
-            html = html.replace(r, '<b>$1</b>');
-        });
+        const keywords = [
+            "RESSONÂNCIA MAGNÉTICA DO JOELHO DIREITO",
+            "RESSONÂNCIA MAGNÉTICA", 
+            "TÉCNICA:", "ANÁLISE:", "IMPRESSÃO:", "RELATÓRIO:", "PACIENTE:", "DATA:",
+            "TÉCNICA", "ANÁLISE", "IMPRESSÃO" // Sem dois pontos como fallback
+        ];
+        // Ordena por tamanho decrescente para que "ANÁLISE:" combine ANTES de "ANÁLISE", evitando duplicação de tags!
+        const sortedKeywords = keywords.sort((a, b) => b.length - a.length);
+        
+        // Constrói UMA ÚNICA REGEX MONOLÍTICA combinando todas as possibilidades com OR (|)
+        // Escapa caracteres especiais se houver, embora aqui sejam literais seguros.
+        const pattern = "(" + sortedKeywords.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ")";
+        const r = new RegExp(pattern, "gi");
+        
+        // Executa UMA ÚNICA PASSADA para garantir que não haverá colisão ou aninhamento de tags!
+        // Usamos STRONG com FONT-WEIGHT explícito, que tem 100% de compatibilidade em E-mails (Outlook/Gmail)
+        html = html.replace(r, '<strong style="font-weight: bold;">$1</strong>');
+        
         return html;
     }
 
@@ -403,17 +566,42 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (btnCopy) {
         btnCopy.addEventListener('click', () => {
-            const txt = textEditor.innerText || "";
-            navigator.clipboard.writeText(txt).then(() => {
+            const plainText = textEditor.innerText || "";
+            const htmlContent = `<div style="font-family: 'Arial', sans-serif; font-size: 12pt; text-align: left; line-height: 1.5; color: #000000;">${formatLaudoHTML(plainText)}</div>`;
+            
+            const typeHtml = "text/html";
+            const typePlain = "text/plain";
+            
+            const blobHtml = new Blob([htmlContent], { type: typeHtml });
+            const blobPlain = new Blob([plainText], { type: typePlain });
+            
+            const clipboardItem = new ClipboardItem({
+                [typeHtml]: blobHtml,
+                [typePlain]: blobPlain
+            });
+
+            navigator.clipboard.write([clipboardItem]).then(() => {
                 const backup = btnCopy.innerText;
-                btnCopy.innerText = "Copiado!";
-                setTimeout(() => btnCopy.innerText = backup, 1500);
-            }).catch(err => alert("Erro ao copiar para a área de transferência."));
+                btnCopy.innerText = "✅ Copiado com Formatação!";
+                setTimeout(() => btnCopy.innerText = backup, 2000);
+            }).catch(err => {
+                console.warn("Erro ao copiar com formatação, tentando modo texto simples:", err);
+                // Fallback para texto puro se o navegador reclamar
+                navigator.clipboard.writeText(plainText).then(() => {
+                    btnCopy.innerText = "Copiado (Apenas Texto)";
+                    setTimeout(() => btnCopy.innerText = "Copiar Laudo", 2000);
+                });
+            });
         });
     }
 
     if (btnSave) {
         btnSave.addEventListener('click', saveReportToHistory);
+    }
+
+    const btnEmail = document.getElementById('btn-email');
+    if (btnEmail) {
+        btnEmail.addEventListener('click', sendReportByEmail);
     }
 
     if (navNew) {

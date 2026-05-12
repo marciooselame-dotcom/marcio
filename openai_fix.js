@@ -82,9 +82,10 @@ Sua missão é gerar a seção IMPRESSÃO extraindo TODOS os diagnósticos patol
 REGRAS RÍGIDAS DE EXTRAÇÃO:
 1. COMPLETA: Percorra TODO o documento. Se houver MÚLTIPLAS anormalidades, liste TODAS elas. É PROIBIDO esquecer ou omitir qualquer achado patológico.
 2. LISTA LIMPA: Empilhe os diagnósticos UM EMBAIXO DO OUTRO, um por linha.
-3. SEM FORMATAÇÃO: Proibido usar asteriscos (*), traços (-), números ou bolinhas. Apenas texto corrido por linha.
-4. SEM INTRODUÇÃO: Nunca escreva "Conclusão:", "Nota:" ou frases genéricas. Vá direto ao ponto.
-5. LAUDO NORMAL: Se NÃO houver nenhuma patologia no documento todo, retorne EXATAMENTE: "Estudo por ressonância magnética sem alterações significativas."`;
+3. PONTUAÇÃO OBRIGATÓRIA: Você DEVE inserir obrigatoriamente um ponto final (.) ao término de CADA UMA das linhas da impressão diagnóstica. Nenhuma linha pode terminar aberta.
+4. SEM FORMATAÇÃO: Proibido usar asteriscos (*), traços (-), números ou marcadores. Apenas texto corrido por linha.
+5. SEM INTRODUÇÃO: Nunca escreva "Conclusão:", "Nota:" ou frases genéricas. Vá direto ao ponto.
+6. LAUDO NORMAL: Se NÃO houver nenhuma patologia no documento todo, retorne EXATAMENTE: "Estudo por ressonância magnética sem alterações significativas."`;
 
         const payload = {
             model: "gpt-4o-mini", // Modelo rápido e inteligente para resumos médicos
@@ -103,6 +104,21 @@ REGRAS RÍGIDAS DE EXTRAÇÃO:
             },
             body: JSON.stringify(payload)
         });
+
+        // TELEMETRIA OPENAI (Quota Extraction)
+        if (typeof window.updateApiHealth === 'function') {
+            const remaining = parseInt(response.headers.get('x-ratelimit-remaining-requests') || "0");
+            const limit = parseInt(response.headers.get('x-ratelimit-limit-requests') || "100");
+            
+            if (response.status === 429) {
+                window.updateApiHealth('openai', 0, 'Cota Limite (429)');
+            } else if (limit > 0) {
+                const pct = Math.round((remaining / limit) * 100);
+                window.updateApiHealth('openai', pct, `${pct}% Restantes`);
+            } else if (response.ok) {
+                window.updateApiHealth('openai', 100, 'Conectado');
+            }
+        }
 
         if (!response.ok) {
             throw new Error(`Erro API OpenAI: ${response.status}`);

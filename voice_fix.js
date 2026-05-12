@@ -137,7 +137,7 @@ const VoiceEngine = (() => {
             if (e.data.size > 0) geminiAudioChunks.push(e.data);
         };
         
-        geminiMediaRecorder.start(); 
+        geminiMediaRecorder.start(100); 
     }
 
     // Ciclo rápido disparado quando o WebSpeech diz que a frase acabou
@@ -183,16 +183,17 @@ const VoiceEngine = (() => {
     function processConfigCommands(text) {
         const lower = text.toLowerCase();
         
-        // 1. EXTRAÇÃO INTELIGENTE VIA REGEX (Do Texto do Gemini agora!)
-        const patientMatch = text.match(/paciente\s+([^.,\n]+)/i);
+        // 🛡️ REGEX BLINDADO: Para IMEDIATAMENTE ao encontrar a palavra "LAUDO" ou "INICIAR"
+        const patientMatch = text.match(/paciente\s+((?:(?!laudo|iniciar|exame).)+)/i);
         if (patientMatch) {
             let name = patientMatch[1].trim();
             if (name.length > 1) callbacks.onCommand?.({ action: 'setPatient', value: name });
         }
 
-        const templateMatch = text.match(/laudo\s+([^.,\n]+)/i);
+        // Idem para o template: Pega o que vem depois de 'laudo', mas para antes de 'iniciar'
+        const templateMatch = text.match(/laudo\s+(?:de\s+)?((?:(?!iniciar).)+)/i);
         if (templateMatch) {
-            let template = templateMatch[1].split(" iniciar ")[0].trim();
+            let template = templateMatch[1].trim();
             if (template.length > 1) callbacks.onCommand?.({ action: 'loadTemplate', value: template });
         }
     }
@@ -201,18 +202,27 @@ const VoiceEngine = (() => {
     // FASE 3: DITADO MESTRE ININTERRUPTO (Mesma lógica v3.0 de sucesso)
     // =========================================================================
     async function switchToDictationPhase() {
-        // Para o gravador cíclico anterior se existir
-        if (geminiMediaRecorder && geminiMediaRecorder.state !== 'inactive') {
-            geminiMediaRecorder.stop();
-        }
+        // 🛡️ RESET TOTAL DE HARDWARE: Garante que o microfone não trave entre as fases
+        try {
+            if (geminiMediaRecorder && geminiMediaRecorder.state !== 'inactive') {
+                await new Promise(res => {
+                    geminiMediaRecorder.onstop = res;
+                    geminiMediaRecorder.stop();
+                });
+            }
+            // Mata o stream anterior COMPLETAMENTE para liberar o driver de áudio do Windows!
+            if (geminiStream) {
+                geminiStream.getTracks().forEach(t => t.stop());
+                geminiStream = null;
+            }
+        } catch (e) { console.warn("Erro ao resetar hardware anterior:", e); }
         
         setPhase('DICTATION');
-        callbacks.onStatusChange?.('loading', 'Ativando Captura Mestra Ininterrupta...');
+        callbacks.onStatusChange?.('loading', '🔄 Reconfigurando Microfone...');
 
         try {
-            if (!geminiStream) {
-                geminiStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            }
+            // Solicita canal FRESCO e LIMPO sem resíduos do Config
+            geminiStream = await navigator.mediaDevices.getUserMedia({ audio: true });
             
             geminiAudioChunks = [];
             geminiMediaRecorder = new MediaRecorder(geminiStream);
@@ -221,8 +231,9 @@ const VoiceEngine = (() => {
                 if (e.data.size > 0) geminiAudioChunks.push(e.data);
             };
 
-            // Sem timeslice = Um único arquivo WebM com metadados perfeitos ao fechar!
-            geminiMediaRecorder.start();
+            // 🔥 FIX CRÍTICO: Adicionado Time-Slice de 1000ms para forçar o navegador a gravar 
+            // blocos contínuos e evitar que o áudio "corrompa" ou estoure memória em gravações longas!
+            geminiMediaRecorder.start(1000);
             
             callbacks.onStatusChange?.('listening', '🎙️ DITADO ATIVO: Grave à vontade...');
             console.log("[VoiceEngine] Motor Ininterrupto Iniciado.");
@@ -252,7 +263,11 @@ const VoiceEngine = (() => {
         if (isTerminating) return;
         isTerminating = true; 
 
-        callbacks.onStatusChange?.('loading', '🏁 Finalizando Fluxo...');
+        callbacks.onStatusChange?.('loading', '🏁 Aguardando buffers de áudio finais...');
+        
+        // 🛡️ PROTEÇÃO DE CAUDA (NOVO!): Espera 1.5s para garantir que o hardware grave os últimos frames 
+        // e nenhuma palavra que venha junto do comando de fechar seja amputada.
+        await new Promise(resolve => setTimeout(resolve, 1500));
 
         if (geminiMediaRecorder && geminiMediaRecorder.state !== 'inactive') {
             const waitForHardwareStop = new Promise(resolve => {

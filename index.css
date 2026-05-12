@@ -100,7 +100,7 @@ h1, h2, h3, h4, .font-outfit {
     flex-direction: column;
     background: linear-gradient(180deg, var(--bg-primary) 0%, #0c0f16 100%);
     position: relative;
-    padding: 1.5rem;
+    padding: 1rem;
     overflow-y: auto;
 }
 
@@ -164,7 +164,7 @@ h1, h2, h3, h4, .font-outfit {
 .editor-workspace {
     flex: 1;
     display: grid;
-    grid-template-columns: 1fr 320px;
+    grid-template-columns: 1fr 180px;
     gap: 1.5rem;
     height: calc(100% - 80px);
 }
@@ -199,16 +199,16 @@ EDITOR DE LAUDO CLINICO (Padrao Word Arial)
     min-height: 600px;
     background: #ffffff;
     color: #000000;
-    border: 1px solid #ddd;
-    border-radius: 8px;
-    padding: 40px; /* Margem de papel */
+    border: 1px solid #e2e8f0;
+    border-radius: 4px; /* Mais reto simulando folha real */
+    padding: 50px 60px; /* Margens tipicas de Word A4 */
     font-family: 'Arial', sans-serif !important;
     font-size: 12pt !important;
     line-height: 1.5 !important;
     white-space: pre-wrap;
     word-wrap: break-word;
     overflow-y: auto;
-    box-shadow: inset 0 2px 8px rgba(0,0,0,0.05);
+    box-shadow: 0 12px 32px rgba(0,0,0,0.4), 0 4px 8px rgba(0,0,0,0.2); /* Efeito Papel Flutuando */
     outline: none;
 }
 

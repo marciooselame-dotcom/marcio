@@ -47,11 +47,43 @@
                 </div>
             </div>
 
-            <div class="stats-info" style="margin-top: auto; background: rgba(255,255,255,0.02); border-radius: 10px; padding: 1rem;">
-                <span style="font-size: 0.75rem; color: var(--text-dim);">MOTOR ATIVO</span>
-                <div style="font-size: 0.9rem; font-weight: 500; margin-top: 4px; display: flex; align-items: center; gap: 6px;">
-                    <div style="width: 6px; height: 6px; background: #10b981; border-radius: 50%;"></div>
-                    Gemini + Groq Ativo
+            <div class="stats-info" style="margin-top: auto; background: rgba(255,255,255,0.02); border-radius: 12px; padding: 1rem; border: 1px solid var(--glass-border);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <span class="card-section-title" style="margin: 0; font-size: 0.7rem;">STATUS DAS APIs</span>
+                    <div style="font-size: 0.6rem; background: rgba(16,185,129,0.2); color: #10b981; padding: 2px 6px; border-radius: 4px; font-weight: bold;">REALTIME</div>
+                </div>
+                
+                <!-- Indicador Gemini -->
+                <div style="margin-bottom: 12px;">
+                    <div style="display: flex; justify-content: space-between; font-size: 0.75rem; margin-bottom: 4px;">
+                        <span style="color: var(--text-main);">Gemini (Transcrição)</span>
+                        <span id="gemini-stat-text" style="color: var(--accent-success);">Operacional</span>
+                    </div>
+                    <div style="height: 4px; background: var(--bg-primary); border-radius: 2px; overflow: hidden;">
+                        <div id="gemini-bar" style="height: 100%; width: 100%; background: linear-gradient(90deg, #0ea5e9, #3b82f6); transition: width 0.5s;"></div>
+                    </div>
+                </div>
+
+                <!-- Indicador Groq -->
+                <div style="margin-bottom: 12px;">
+                    <div style="display: flex; justify-content: space-between; font-size: 0.75rem; margin-bottom: 4px;">
+                        <span style="color: var(--text-main);">Groq (Merge)</span>
+                        <span id="groq-stat-text" style="color: var(--accent-success);">100%</span>
+                    </div>
+                    <div style="height: 4px; background: var(--bg-primary); border-radius: 2px; overflow: hidden;">
+                        <div id="groq-bar" style="height: 100%; width: 100%; background: linear-gradient(90deg, #f59e0b, #f97316); transition: width 0.5s;"></div>
+                    </div>
+                </div>
+
+                <!-- Indicador OpenAI -->
+                <div>
+                    <div style="display: flex; justify-content: space-between; font-size: 0.75rem; margin-bottom: 4px;">
+                        <span style="color: var(--text-main);">OpenAI (Conclusão)</span>
+                        <span id="openai-stat-text" style="color: var(--accent-success);">100%</span>
+                    </div>
+                    <div style="height: 4px; background: var(--bg-primary); border-radius: 2px; overflow: hidden;">
+                        <div id="openai-bar" style="height: 100%; width: 100%; background: linear-gradient(90deg, #10b981, #059669); transition: width 0.5s;"></div>
+                    </div>
                 </div>
             </div>
         </nav>
@@ -72,10 +104,24 @@
                 <!-- Editor Central -->
                 <div class="glass-editor-card">
                     <div class="editor-toolbar">
-                        <button class="btn" style="padding: 5px 10px;" title="Negrito"><b>B</b></button>
-                        <button class="btn" style="padding: 5px 10px;" title="Itálico"><i>I</i></button>
+                        <!-- Controles Visuais de Formatação Word (Estilo Visual) -->
+                        <select class="word-select" disabled style="width: 100px; padding: 4px; border-radius: 4px; background: rgba(255,255,255,0.1); color: #fff; border: 1px solid var(--glass-border); cursor: not-allowed;">
+                            <option selected>Arial</option>
+                        </select>
+                        <select class="word-select" disabled style="width: 50px; padding: 4px; border-radius: 4px; background: rgba(255,255,255,0.1); color: #fff; border: 1px solid var(--glass-border); cursor: not-allowed;">
+                            <option selected>12</option>
+                        </select>
+                        <div style="border-left: 1px solid var(--glass-border); margin: 0 5px;"></div>
+                        <button class="btn btn-icon active" title="Alinhar à Esquerda" style="padding: 5px; background: rgba(255,255,255,0.15);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="21" y1="6" x2="3" y2="6"></line><line x1="15" y1="12" x2="3" y2="12"></line><line x1="17" y1="18" x2="3" y2="18"></line></svg></button>
+                        <div style="border-left: 1px solid var(--glass-border); margin: 0 5px;"></div>
+                        <button class="btn btn-icon" style="padding: 5px 10px; font-weight: bold; font-family: 'Times New Roman'" onclick="document.execCommand('bold', false, null)">N</button>
+                        <button class="btn btn-icon" style="padding: 5px 10px; font-style: italic; font-family: 'Times New Roman'" onclick="document.execCommand('italic', false, null)">I</button>
                         <div style="border-left: 1px solid var(--glass-border); margin: 0 5px;"></div>
                         <div style="margin-left: auto; display: flex; gap: 8px;">
+                            <button class="btn" id="btn-email" style="background: rgba(59, 130, 246, 0.15); border-color: rgba(59, 130, 246, 0.3); color: #93c5fd;">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                                Enviar por E-mail
+                            </button>
                             <button class="btn btn-success" id="btn-save">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
                                 Salvar Laudo
